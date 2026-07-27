@@ -1,3 +1,57 @@
 spring:
   application:
     name: payment-gateway-orchestrator
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/pgwdb
+    username: pgwuser
+    password: pgwpass
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: localhost
+      port: 6380
+
+  kafka:
+    bootstrap-servers: localhost:9093
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: payment-gateway-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+server:
+  port: 8081
+
+app:
+  jwt:
+    secret: 7hN2kP5mQ8rS1tV4wX6yZ3aB0cD9eF11
+    expiration-ms: 86400000
+  kafka:
+    topics:
+      payment-created: payment.created
+      payment-processed: payment.processed
+      payment-failed: payment.failed
+  resilience:
+    retry-max-attempts: 3
+    circuit-breaker-threshold: 50
+  idempotency:
+    ttl-minutes: 1440
