@@ -55,3 +55,45 @@ app:
     circuit-breaker-threshold: 50
   idempotency:
     ttl-minutes: 1440
+
+resilience4j:
+  retry:
+    instances:
+      paymentProcessing:
+        max-attempts: 3
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.dao.TransientDataAccessException
+        ignore-exceptions:
+          - java.lang.IllegalArgumentException
+          - java.util.NoSuchElementException
+
+  circuitbreaker:
+    instances:
+      paymentProcessing:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: 10s
+        failure-rate-threshold: 50
+        event-consumer-buffer-size: 10
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.dao.TransientDataAccessException
+        ignore-exceptions:
+          - java.lang.IllegalArgumentException
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,retries
+  health:
+    circuitbreakers:
+      enabled: true
