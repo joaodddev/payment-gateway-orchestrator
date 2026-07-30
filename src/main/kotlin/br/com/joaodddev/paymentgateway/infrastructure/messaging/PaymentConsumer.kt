@@ -4,6 +4,7 @@ import br.com.joaodddev.paymentgateway.domain.repository.PaymentRepository
 import br.com.joaodddev.paymentgateway.infrastructure.messaging.dto.PaymentCreatedEvent
 import br.com.joaodddev.paymentgateway.infrastructure.messaging.dto.PaymentFailedEvent
 import br.com.joaodddev.paymentgateway.infrastructure.messaging.dto.PaymentProcessedEvent
+import br.com.joaodddev.paymentgateway.infrastructure.resilience.PaymentProcessingService
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.support.KafkaHeaders
@@ -15,7 +16,8 @@ import org.springframework.transaction.annotation.Transactional
 @Component
 class PaymentConsumer(
     private val paymentRepository: PaymentRepository,
-    private val paymentProducer: PaymentProducer
+    private val paymentProducer: PaymentProducer,
+    private val paymentProcessingService: PaymentProcessingService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -39,16 +41,20 @@ class PaymentConsumer(
             }
 
         if (!payment.isPending()) {
-            log.warn("Payment ${event.paymentId} is not in PENDING state, skipping")
+            log.warn("Payment ${event.paymentId} is not PENDING, skipping")
             return
         }
 
-        runCatching {
-            payment.startProcessing()
-            paymentRepository.save(payment)
+        payment.startProcessing()
+        paymentRepository.save(payment)
 
-            simulatePaymentProcessing(event)
+        val result = paymentProcessingService.process(
+            paymentId = payment.id!!,
+            amount = payment.amount,
+            currency = payment.currency
+        )
 
+        if (result.success) {
             payment.approve()
             paymentRepository.save(payment)
 
@@ -59,27 +65,19 @@ class PaymentConsumer(
                     status = payment.status.name
                 )
             )
-
             log.info("Payment ${payment.id} approved successfully")
-
-        }.onFailure { ex ->
-            log.error("Payment ${event.paymentId} processing failed: ${ex.message}", ex)
-
-            payment.fail(ex.message ?: "Unknown error")
+        } else {
+            payment.fail(result.failureReason ?: "Unknown error")
             paymentRepository.save(payment)
 
             paymentProducer.publishPaymentFailed(
                 PaymentFailedEvent(
                     paymentId = payment.id!!,
                     idempotencyKey = payment.idempotencyKey,
-                    reason = ex.message ?: "Unknown error"
+                    reason = result.failureReason ?: "Unknown error"
                 )
             )
+            log.error("Payment ${payment.id} failed: ${result.failureReason}")
         }
-    }
-
-    private fun simulatePaymentProcessing(event: PaymentCreatedEvent) {
-        log.info("Processing payment amount=${event.amount} ${event.currency}")
-        Thread.sleep(100)
     }
 }
